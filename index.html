@@ -201,7 +201,14 @@
 
 </main>
 
-<script src="app.js"></script>
+<!-- Supabase JS SDK -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+  const SUPABASE_URL = 'https://wumahznlehwoamznfdqo.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_uk2cJAJdvyHxP5tcScQ_8A_ObkADe4-';
+  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+</script>
 
 <!-- Admin Authentication Modal -->
 <div id="adminAuthModal" class="modal hidden">
@@ -537,6 +544,7 @@
   </div>
 </div>
 
+<script src="app.js"></script>
 
 </body>
 </html>
