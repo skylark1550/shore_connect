@@ -4206,12 +4206,10 @@ function logAdminAction(action, details) {
 }
 
 /* ================================================================
-   FEATURE 1: DELAY MANAGEMENT
+   FEATURE 1: DELAY MANAGEMENT (Supabase Version)
    ================================================================ */
 
-if (!window.trainDelays) window.trainDelays = {};
-
-function logTrainDelay() {
+async function logTrainDelay() {
   const trainId = document.getElementById('delayTrainId').value.trim();
   const minutes = parseInt(document.getElementById('delayMinutes').value);
   const reason = document.getElementById('delayReason').value;
@@ -4228,62 +4226,90 @@ function logTrainDelay() {
   }
   
   const delayKey = `${trainId}_${Date.now()}`;
-  window.trainDelays[delayKey] = {
-    trainId: trainId,
-    minutes: minutes,
-    reason: reason,
-    loggedBy: currentAdminUser,
-    timestamp: new Date().toISOString(),
-    active: true
-  };
   
-  logAdminAction('DELAY_LOG', `Train ${trainId} delayed ${minutes}min - ${reason}`);
-  refreshActiveDelays();
-  document.getElementById('delayTrainId').value = '';
-  document.getElementById('delayMinutes').value = '5';
-}
-
-function removeDelay(delayKey) {
-  if (window.trainDelays[delayKey]) {
-    const delay = window.trainDelays[delayKey];
-    window.trainDelays[delayKey].active = false;
-    logAdminAction('DELAY_REMOVE', `Removed delay for train ${delay.trainId}`);
+  try {
+    const { error } = await supabase
+      .from('train_delays')
+      .insert([{
+        id: delayKey,
+        train_id: trainId,
+        minutes: minutes,
+        reason: reason,
+        logged_by: currentAdminUser,
+        timestamp: new Date().toISOString(),
+        active: true
+      }]);
+    
+    if (error) throw error;
+    
+    logAdminAction('DELAY_LOG', `Train ${trainId} delayed ${minutes}min - ${reason}`);
+    await refreshActiveDelays();
+    
+    document.getElementById('delayTrainId').value = '';
+    document.getElementById('delayMinutes').value = '5';
+    
+    showTemporaryMessage(`Delay logged for train ${trainId}`, 'success');
+  } catch (error) {
+    console.error('Log delay error:', error);
+    alert('Failed to log delay: ' + error.message);
   }
-  refreshActiveDelays();
 }
 
-function refreshActiveDelays() {
+async function removeDelay(delayKey) {
+  try {
+    const { error } = await supabase
+      .from('train_delays')
+      .update({ active: false })
+      .eq('id', delayKey);
+    
+    if (error) throw error;
+    
+    await refreshActiveDelays();
+    showTemporaryMessage('Delay removed', 'success');
+  } catch (error) {
+    console.error('Remove delay error:', error);
+    alert('Failed to remove delay: ' + error.message);
+  }
+}
+
+async function refreshActiveDelays() {
   const listEl = document.getElementById('activeDelaysList');
   if (!listEl) return;
   
-  const activeDelays = Object.entries(window.trainDelays)
-    .filter(([key, delay]) => delay.active)
-    .sort((a, b) => new Date(b[1].timestamp) - new Date(a[1].timestamp));
-  
-  if (activeDelays.length === 0) {
-    listEl.innerHTML = '<p style="color: #64748b;">No active delays</p>';
-    return;
-  }
-  
-  listEl.innerHTML = activeDelays.map(([key, delay]) => `
-    <div class="delay-item">
-      <div class="item-info">
-        <strong>${delay.trainId}</strong> - ${delay.minutes}min delay<br>
-        <span style="color: #a0a0b0;">${delay.reason.replace(/_/g, ' ')}</span>
-        <div class="item-timestamp">Logged by ${delay.loggedBy} at ${new Date(delay.timestamp).toLocaleTimeString()}</div>
+  try {
+    const { data: activeDelays, error } = await supabase
+      .from('train_delays')
+      .select('*')
+      .eq('active', true)
+      .order('timestamp', { ascending: false });
+    
+    if (error) throw error;
+    
+    if (!activeDelays || activeDelays.length === 0) {
+      listEl.innerHTML = '<p style="color: #64748b;">No active delays</p>';
+      return;
+    }
+    
+    listEl.innerHTML = activeDelays.map(delay => `
+      <div class="delay-item">
+        <div class="item-info">
+          <strong>${delay.train_id}</strong> - ${delay.minutes}min delay<br>
+          <span style="color: #a0a0b0;">${delay.reason.replace(/_/g, ' ')}</span>
+          <div class="item-timestamp">Logged by ${delay.logged_by} at ${new Date(delay.timestamp).toLocaleTimeString()}</div>
+        </div>
+        <button class="item-action" onclick="removeDelay('${delay.id}')">Clear</button>
       </div>
-      <button class="item-action" onclick="removeDelay('${key}')">Clear</button>
-    </div>
-  `).join('');
+    `).join('');
+  } catch (error) {
+    console.error('Refresh delays error:', error);
+  }
 }
 
 /* ================================================================
-   FEATURE 2: PLATFORM OVERRIDE
+   FEATURE 2: PLATFORM OVERRIDE (Supabase Version)
    ================================================================ */
 
-if (!window.platformOverrides) window.platformOverrides = {};
-
-function overridePlatform() {
+async function overridePlatform() {
   const trainId = document.getElementById('platformTrainId').value.trim();
   const stationId = document.getElementById('platformStation').value;
   const newPlatform = parseInt(document.getElementById('newPlatform').value);
@@ -4294,67 +4320,95 @@ function overridePlatform() {
     return;
   }
   
-  const key = `${trainId}_${stationId}`;
-  window.platformOverrides[key] = {
-    trainId: trainId,
-    stationId: stationId,
-    platform: newPlatform,
-    reason: reason,
-    setBy: currentAdminUser,
-    timestamp: new Date().toISOString(),
-    active: true
-  };
+  const key = `${trainId}_${stationId}_${Date.now()}`;
   
-  logAdminAction('PLATFORM_OVERRIDE', `Train ${trainId} at ${stationId} → Platform ${newPlatform} (${reason})`);
-  refreshActiveOverrides();
-  document.getElementById('platformTrainId').value = '';
-  document.getElementById('newPlatform').value = '';
-}
-
-function removePlatformOverride(key) {
-  if (window.platformOverrides[key]) {
-    const override = window.platformOverrides[key];
-    window.platformOverrides[key].active = false;
-    logAdminAction('PLATFORM_REMOVE', `Removed platform override for ${override.trainId} at ${override.stationId}`);
+  try {
+    const { error } = await supabase
+      .from('platform_overrides')
+      .insert([{
+        id: key,
+        train_id: trainId,
+        station_id: stationId,
+        platform: newPlatform,
+        reason: reason,
+        set_by: currentAdminUser,
+        timestamp: new Date().toISOString(),
+        active: true
+      }]);
+    
+    if (error) throw error;
+    
+    logAdminAction('PLATFORM_OVERRIDE', `Train ${trainId} at ${stationId} → Platform ${newPlatform} (${reason})`);
+    await refreshActiveOverrides();
+    
+    document.getElementById('platformTrainId').value = '';
+    document.getElementById('newPlatform').value = '';
+    
+    showTemporaryMessage(`Platform override set for train ${trainId}`, 'success');
+  } catch (error) {
+    console.error('Platform override error:', error);
+    alert('Failed to set platform override: ' + error.message);
   }
-  refreshActiveOverrides();
 }
 
-function refreshActiveOverrides() {
+async function removePlatformOverride(key) {
+  try {
+    const { error } = await supabase
+      .from('platform_overrides')
+      .update({ active: false })
+      .eq('id', key);
+    
+    if (error) throw error;
+    
+    await refreshActiveOverrides();
+    showTemporaryMessage('Platform override removed', 'success');
+  } catch (error) {
+    console.error('Remove override error:', error);
+    alert('Failed to remove override: ' + error.message);
+  }
+}
+
+async function refreshActiveOverrides() {
   const listEl = document.getElementById('activeOverridesList');
   if (!listEl) return;
   
-  const activeOverrides = Object.entries(window.platformOverrides)
-    .filter(([key, override]) => override.active)
-    .sort((a, b) => new Date(b[1].timestamp) - new Date(a[1].timestamp));
-  
-  if (activeOverrides.length === 0) {
-    listEl.innerHTML = '<p style="color: #64748b;">No active platform overrides</p>';
-    return;
-  }
-  
-  listEl.innerHTML = activeOverrides.map(([key, override]) => {
-    const stationName = stationLookup[override.stationId]?.name || override.stationId;
-    return `
-      <div class="override-item">
-        <div class="item-info">
-          <strong>${override.trainId}</strong> at <strong>${stationName}</strong> → P${override.platform}<br>
-          <span style="color: #a0a0b0;">${override.reason.replace(/_/g, ' ')}</span>
-          <div class="item-timestamp">Set by ${override.setBy} at ${new Date(override.timestamp).toLocaleTimeString()}</div>
+  try {
+    const { data: activeOverrides, error } = await supabase
+      .from('platform_overrides')
+      .select('*')
+      .eq('active', true)
+      .order('timestamp', { ascending: false });
+    
+    if (error) throw error;
+    
+    if (!activeOverrides || activeOverrides.length === 0) {
+      listEl.innerHTML = '<p style="color: #64748b;">No active platform overrides</p>';
+      return;
+    }
+    
+    listEl.innerHTML = activeOverrides.map(override => {
+      const stationName = stationLookup[override.station_id]?.name || override.station_id;
+      return `
+        <div class="override-item">
+          <div class="item-info">
+            <strong>${override.train_id}</strong> at <strong>${stationName}</strong> → P${override.platform}<br>
+            <span style="color: #a0a0b0;">${override.reason.replace(/_/g, ' ')}</span>
+            <div class="item-timestamp">Set by ${override.set_by} at ${new Date(override.timestamp).toLocaleTimeString()}</div>
+          </div>
+          <button class="item-action" onclick="removePlatformOverride('${override.id}')">Remove</button>
         </div>
-        <button class="item-action" onclick="removePlatformOverride('${key}')">Remove</button>
-      </div>
-    `;
-  }).join('');
+      `;
+    }).join('');
+  } catch (error) {
+    console.error('Refresh overrides error:', error);
+  }
 }
 
 /* ================================================================
-   FEATURE 3: SERVICE STATUS MANAGEMENT
+   FEATURE 3: SERVICE STATUS MANAGEMENT (Supabase Version)
    ================================================================ */
 
-if (!window.serviceStatuses) window.serviceStatuses = {};
-
-function updateServiceStatus() {
+async function updateServiceStatus() {
   const trainId = document.getElementById('serviceTrainId').value.trim();
   const status = document.getElementById('serviceStatus').value;
   let terminationStation = null;
@@ -4378,71 +4432,97 @@ function updateServiceStatus() {
     return;
   }
   
-  window.serviceStatuses[trainId] = {
-    status: status,
-    terminationStation: terminationStation,
-    setBy: currentAdminUser,
-    timestamp: new Date().toISOString(),
-    active: status !== 'NORMAL'
-  };
-  
-  logAdminAction('SERVICE_STATUS', `Train ${trainId} set to ${status}${terminationStation ? ' at ' + terminationStation : ''}`);
-  refreshActiveServiceChanges();
-  document.getElementById('serviceTrainId').value = '';
-}
-
-function clearServiceStatus(trainId) {
-  if (window.serviceStatuses[trainId]) {
-    window.serviceStatuses[trainId].active = false;
-    window.serviceStatuses[trainId].status = 'NORMAL';
-    logAdminAction('SERVICE_CLEAR', `Cleared status for train ${trainId}`);
+  try {
+    const { error } = await supabase
+      .from('service_statuses')
+      .upsert([{
+        train_id: trainId,
+        status: status,
+        termination_station: terminationStation,
+        set_by: currentAdminUser,
+        timestamp: new Date().toISOString(),
+        active: status !== 'NORMAL'
+      }], { onConflict: 'train_id' });
+    
+    if (error) throw error;
+    
+    logAdminAction('SERVICE_STATUS', `Train ${trainId} set to ${status}${terminationStation ? ' at ' + terminationStation : ''}`);
+    await refreshActiveServiceChanges();
+    
+    document.getElementById('serviceTrainId').value = '';
+    showTemporaryMessage(`Service status updated for train ${trainId}`, 'success');
+  } catch (error) {
+    console.error('Service status error:', error);
+    alert('Failed to update service status: ' + error.message);
   }
-  refreshActiveServiceChanges();
 }
 
-function refreshActiveServiceChanges() {
+async function clearServiceStatus(trainId) {
+  try {
+    const { error } = await supabase
+      .from('service_statuses')
+      .update({ active: false, status: 'NORMAL' })
+      .eq('train_id', trainId);
+    
+    if (error) throw error;
+    
+    await refreshActiveServiceChanges();
+    showTemporaryMessage(`Service status cleared for train ${trainId}`, 'success');
+  } catch (error) {
+    console.error('Clear service status error:', error);
+    alert('Failed to clear service status: ' + error.message);
+  }
+}
+
+async function refreshActiveServiceChanges() {
   const listEl = document.getElementById('activeServiceChangesList');
   if (!listEl) return;
   
-  const activeChanges = Object.entries(window.serviceStatuses)
-    .filter(([trainId, status]) => status.active)
-    .sort((a, b) => new Date(b[1].timestamp) - new Date(a[1].timestamp));
-  
-  if (activeChanges.length === 0) {
-    listEl.innerHTML = '<p style="color: #64748b;">No active service changes</p>';
-    return;
-  }
-  
-  listEl.innerHTML = activeChanges.map(([trainId, status]) => {
+  try {
+    const { data: activeChanges, error } = await supabase
+      .from('service_statuses')
+      .select('*')
+      .eq('active', true)
+      .order('timestamp', { ascending: false });
+    
+    if (error) throw error;
+    
+    if (!activeChanges || activeChanges.length === 0) {
+      listEl.innerHTML = '<p style="color: #64748b;">No active service changes</p>';
+      return;
+    }
+    
     const statusColors = {
       'CANCELLED': '#e74c3c',
       'SHORT_TERMINATED': '#e67e22',
       'EXPRESS_RUNNING': '#3498db',
       'DELAYED': '#f39c12'
     };
-    const color = statusColors[status.status] || '#95a5a6';
     
-    return `
-      <div class="service-change-item">
-        <div class="item-info">
-          <strong>${trainId}</strong> - 
-          <span style="color: ${color}; font-weight: bold;">${status.status.replace(/_/g, ' ')}</span>
-          ${status.terminationStation ? `<br>Terminates at: ${stationLookup[status.terminationStation]?.name || status.terminationStation}` : ''}
-          <div class="item-timestamp">Set by ${status.setBy} at ${new Date(status.timestamp).toLocaleTimeString()}</div>
+    listEl.innerHTML = activeChanges.map(change => {
+      const color = statusColors[change.status] || '#95a5a6';
+      return `
+        <div class="service-change-item">
+          <div class="item-info">
+            <strong>${change.train_id}</strong> - 
+            <span style="color: ${color}; font-weight: bold;">${change.status.replace(/_/g, ' ')}</span>
+            ${change.termination_station ? `<br>Terminates at: ${stationLookup[change.termination_station]?.name || change.termination_station}` : ''}
+            <div class="item-timestamp">Set by ${change.set_by} at ${new Date(change.timestamp).toLocaleTimeString()}</div>
+          </div>
+          <button class="item-action" onclick="clearServiceStatus('${change.train_id}')">Clear</button>
         </div>
-        <button class="item-action" onclick="clearServiceStatus('${trainId}')">Clear</button>
-      </div>
-    `;
-  }).join('');
+      `;
+    }).join('');
+  } catch (error) {
+    console.error('Refresh service changes error:', error);
+  }
 }
 
 /* ================================================================
-   FEATURE 4: STAFF NOTES
+   FEATURE 4: STAFF NOTES (Supabase Version)
    ================================================================ */
 
-if (!window.staffNotes) window.staffNotes = { station: {}, train: {} };
-
-function addStaffNote() {
+async function addStaffNote() {
   const noteType = document.getElementById('noteType').value;
   const targetId = document.getElementById('noteTarget').value;
   const content = document.getElementById('noteContent').value.trim();
@@ -4452,27 +4532,49 @@ function addStaffNote() {
     return;
   }
   
-  if (!window.staffNotes[noteType][targetId]) {
-    window.staffNotes[noteType][targetId] = [];
+  const noteId = `${noteType}_${targetId}_${Date.now()}`;
+  
+  try {
+    const { error } = await supabase
+      .from('staff_notes')
+      .insert([{
+        id: noteId,
+        note_type: noteType,
+        target_id: targetId,
+        content: content,
+        author: currentAdminUser,
+        timestamp: new Date().toISOString()
+      }]);
+    
+    if (error) throw error;
+    
+    logAdminAction('NOTE_ADDED', `${noteType} note for ${targetId}`);
+    await refreshActiveNotes();
+    
+    document.getElementById('noteContent').value = '';
+    showTemporaryMessage('Note added successfully', 'success');
+  } catch (error) {
+    console.error('Add note error:', error);
+    alert('Failed to add note: ' + error.message);
   }
-  
-  window.staffNotes[noteType][targetId].unshift({
-    content: content,
-    author: currentAdminUser,
-    timestamp: new Date().toISOString()
-  });
-  
-  logAdminAction('NOTE_ADDED', `${noteType} note for ${targetId}`);
-  refreshActiveNotes();
-  document.getElementById('noteContent').value = '';
 }
 
-function deleteStaffNote(noteType, targetId, index) {
-  if (window.staffNotes[noteType][targetId]) {
-    window.staffNotes[noteType][targetId].splice(index, 1);
+async function deleteStaffNote(noteType, targetId, index, noteId) {
+  try {
+    const { error } = await supabase
+      .from('staff_notes')
+      .delete()
+      .eq('id', noteId);
+    
+    if (error) throw error;
+    
     logAdminAction('NOTE_DELETED', `Deleted ${noteType} note for ${targetId}`);
+    await refreshActiveNotes();
+    showTemporaryMessage('Note deleted', 'success');
+  } catch (error) {
+    console.error('Delete note error:', error);
+    alert('Failed to delete note: ' + error.message);
   }
-  refreshActiveNotes();
 }
 
 function updateNoteTargets() {
@@ -4505,468 +4607,330 @@ function updateNoteTargets() {
   }
 }
 
-function getAllNotes() {
-  let allNotes = [];
-  
-  Object.entries(window.staffNotes.station || {}).forEach(([stationId, notes]) => {
-    notes.forEach((note, index) => {
-      allNotes.push({
-        type: 'station',
-        targetId: stationId,
-        targetName: stationLookup[stationId]?.name || stationId,
-        content: note.content,
-        author: note.author,
-        timestamp: note.timestamp,
-        index: index
-      });
-    });
-  });
-  
-  Object.entries(window.staffNotes.train || {}).forEach(([trainId, notes]) => {
-    notes.forEach((note, index) => {
-      allNotes.push({
-        type: 'train',
-        targetId: trainId,
-        targetName: trainId,
-        content: note.content,
-        author: note.author,
-        timestamp: note.timestamp,
-        index: index
-      });
-    });
-  });
-  
-  allNotes.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  return allNotes;
-}
-
-function refreshActiveNotes() {
+async function refreshActiveNotes() {
   const listEl = document.getElementById('activeNotesList');
   if (!listEl) return;
   
-  const allNotes = getAllNotes().slice(0, 20);
-  
-  if (allNotes.length === 0) {
-    listEl.innerHTML = '<p style="color: #64748b;">No staff notes</p>';
-    return;
+  try {
+    const { data: notes, error } = await supabase
+      .from('staff_notes')
+      .select('*')
+      .order('timestamp', { ascending: false })
+      .limit(20);
+    
+    if (error) throw error;
+    
+    if (!notes || notes.length === 0) {
+      listEl.innerHTML = '<p style="color: #64748b;">No staff notes</p>';
+      return;
+    }
+    
+    listEl.innerHTML = notes.map(note => {
+      const targetName = note.note_type === 'station' 
+        ? (stationLookup[note.target_id]?.name || note.target_id)
+        : note.target_id;
+      
+      return `
+        <div class="note-item">
+          <div class="item-info">
+            <strong>${note.note_type === 'station' ? '🏢' : '🚆'} ${targetName}</strong><br>
+            <span style="color: #e2e8f0;">${escapeHtml(note.content)}</span>
+            <div class="item-timestamp">By ${note.author} at ${new Date(note.timestamp).toLocaleString()}</div>
+          </div>
+          <button class="item-action" onclick="deleteStaffNote('${note.note_type}', '${note.target_id}', null, '${note.id}')">×</button>
+        </div>
+      `;
+    }).join('');
+  } catch (error) {
+    console.error('Refresh notes error:', error);
   }
-  
-  listEl.innerHTML = allNotes.map(note => `
-    <div class="note-item">
-      <div class="item-info">
-        <strong>${note.type === 'station' ? '🏢' : '🚆'} ${note.targetName}</strong><br>
-        <span style="color: #e2e8f0;">${note.content}</span>
-        <div class="item-timestamp">By ${note.author} at ${new Date(note.timestamp).toLocaleString()}</div>
-      </div>
-      <button class="item-action" onclick="deleteStaffNote('${note.type}', '${note.targetId}', ${note.index})">×</button>
-    </div>
-  `).join('');
 }
 
 /* ================================================================
-   FEATURE 5: ADMIN DASHBOARD (Live updating every 500ms)
+   FEATURE 8: BATCH OPERATIONS (Updated for Supabase)
    ================================================================ */
 
-   let dashboardInterval = null;
-   let cachedWeather = null;
-   let lastWeatherUpdate = 0;
-   
-   function updateDashboard() {
-     const dashboardContent = document.getElementById('dashboardContent');
-     if (!dashboardContent) return;
-     
-     const now = new Date();
-     const currentSeconds = getGMT12Seconds();
-     
-     // Get real-time train positions (recalculate if empty)
-     let activeTrainsList = currentTrainPositions;
-     if (activeTrainsList.length === 0 && timetableData) {
-       // Calculate active trains on the fly if not on the live map
-       activeTrainsList = calculateActiveTrains();
-     }
-     
-     // Count active trains
-     const activeTrains = activeTrainsList.length;
-     
-     // Count delayed trains
-     const delayedTrains = Object.values(window.trainDelays || {}).filter(d => d.active).length;
-     
-     // Count cancelled services
-     const cancelledServices = Object.values(window.serviceStatuses || {}).filter(s => s.status === 'CANCELLED' && s.active).length;
-     
-     // Count other service statuses
-     const shortTerminated = Object.values(window.serviceStatuses || {}).filter(s => s.status === 'SHORT_TERMINATED' && s.active).length;
-     const expressRunning = Object.values(window.serviceStatuses || {}).filter(s => s.status === 'EXPRESS_RUNNING' && s.active).length;
-     
-     // Count platform overrides
-     const activeOverrides = Object.values(window.platformOverrides || {}).filter(o => o.active).length;
-     
-     // Get recent notes
-     const recentNotes = getAllNotes().slice(0, 5);
-     
-     // Count total trains in system
-     const totalTrains = timetableData ? timetableData.trains.length : 0;
-     
-     // Calculate active percentage
-     const activePercentage = totalTrains > 0 ? Math.round((activeTrains / totalTrains) * 100) : 0;
-     
-     // Weather - only update every 30 minutes
-     if (!cachedWeather || (Date.now() - lastWeatherUpdate > 1800000)) {
-       const weatherConditions = ['Clear', 'Light Rain', 'Fog', 'Strong Winds', 'Overcast', 'Drizzle'];
-       cachedWeather = weatherConditions[Math.floor(Math.random() * weatherConditions.length)];
-       lastWeatherUpdate = Date.now();
-     }
-     
-     // Get fleet breakdown (pass the active trains list)
-     const fleetBreakdown = getFleetBreakdown(activeTrainsList);
-     
-     // Get direction breakdown
-     const directionBreakdown = getDirectionBreakdown(activeTrainsList);
-     
-     // Get most active station
-     const busiestStation = getBusiestStation(activeTrainsList);
-     
-     // Get upcoming departures count
-     const totalUpcomingDepartures = getTotalUpcomingDepartures(currentSeconds);
-     
-     dashboardContent.innerHTML = `
-       <div class="dashboard-stats">
-         <div class="stat-card">
-           <div class="stat-value">${activeTrains}</div>
-           <div class="stat-label">Active Trains</div>
-           <div class="stat-sub">of ${totalTrains} total (${activePercentage}%)</div>
-         </div>
-         <div class="stat-card ${delayedTrains > 0 ? 'danger' : ''}">
-           <div class="stat-value">${delayedTrains}</div>
-           <div class="stat-label">Delayed</div>
-         </div>
-         <div class="stat-card ${cancelledServices > 0 ? 'danger' : ''}">
-           <div class="stat-value">${cancelledServices}</div>
-           <div class="stat-label">Cancelled</div>
-         </div>
-         <div class="stat-card ${activeOverrides > 0 ? 'warning' : ''}">
-           <div class="stat-value">${activeOverrides}</div>
-           <div class="stat-label">Platform Changes</div>
-         </div>
-       </div>
-       
-       <div class="dashboard-stats" style="margin-top: 12px;">
-         <div class="stat-card">
-           <div class="stat-value">${totalUpcomingDepartures}</div>
-           <div class="stat-label">Upcoming (2h)</div>
-         </div>
-         <div class="stat-card">
-           <div class="stat-value">${shortTerminated}</div>
-           <div class="stat-label">Short Terminated</div>
-         </div>
-         <div class="stat-card">
-           <div class="stat-value">${expressRunning}</div>
-           <div class="stat-label">Express Running</div>
-         </div>
-         <div class="stat-card">
-           <div class="stat-value">${recentNotes.length}</div>
-           <div class="stat-label">Staff Notes</div>
-         </div>
-       </div>
-       
-       <div class="dashboard-grid">
-         <div class="dashboard-section">
-           <h4>🌤 Current Conditions</h4>
-           <div class="dashboard-info-row">
-             <span>Weather:</span>
-             <span>${cachedWeather} <small style="color: #64748b;">(updated ${new Date(lastWeatherUpdate).toLocaleTimeString()})</small></span>
-           </div>
-           <div class="dashboard-info-row">
-             <span>System Time:</span>
-             <span>${now.toLocaleTimeString()}</span>
-           </div>
-           <div class="dashboard-info-row">
-             <span>Active Staff:</span>
-             <span>${currentAdminUser}</span>
-           </div>
-           <div class="dashboard-info-row">
-             <span>Total Fleet:</span>
-             <span>${totalTrains} trains</span>
-           </div>
-         </div>
-         
-         <div class="dashboard-section">
-           <h4>⚠️ Active Alerts</h4>
-           ${delayedTrains > 0 ? `<div class="alert-item alert-danger">🔴 ${delayedTrains} trains running late</div>` : ''}
-           ${cancelledServices > 0 ? `<div class="alert-item alert-danger">🚫 ${cancelledServices} cancellations</div>` : ''}
-           ${shortTerminated > 0 ? `<div class="alert-item alert-warning">⚠️ ${shortTerminated} short terminated</div>` : ''}
-           ${expressRunning > 0 ? `<div class="alert-item alert-info">ℹ️ ${expressRunning} running express</div>` : ''}
-           ${activeOverrides > 0 ? `<div class="alert-item alert-warning">🔄 ${activeOverrides} platform changes</div>` : ''}
-           ${delayedTrains === 0 && cancelledServices === 0 && shortTerminated === 0 && activeOverrides === 0 ? '<div class="alert-item alert-success">✅ No active alerts</div>' : ''}
-         </div>
-         
-         <div class="dashboard-section">
-           <h4>🚆 Active Fleet Breakdown</h4>
-           ${fleetBreakdown}
-         </div>
-         
-         <div class="dashboard-section">
-           <h4>🧭 Direction Breakdown</h4>
-           ${directionBreakdown}
-         </div>
-         
-         <div class="dashboard-section">
-           <h4>🏢 Busiest Stations</h4>
-           ${busiestStation}
-         </div>
-         
-         <div class="dashboard-section">
-           <h4>📝 Recent Notes</h4>
-           ${recentNotes.length > 0 ? recentNotes.map(note => `
-             <div class="dashboard-note-item">
-               <div class="note-icon">${note.type === 'station' ? '🏢' : '🚆'}</div>
-               <div class="note-content">
-                 <strong>${note.targetName}</strong><br>
-                 <small>${note.content.substring(0, 60)}${note.content.length > 60 ? '...' : ''}</small>
-                 <div class="note-meta">${note.author} • ${new Date(note.timestamp).toLocaleTimeString()}</div>
-               </div>
-             </div>
-           `).join('') : '<p style="color: #64748b;">No recent notes</p>'}
-         </div>
-       </div>
-       
-       <div class="dashboard-footer">
-         <span class="live-indicator">● LIVE</span> Auto-updating every 0.5s • Last updated: ${now.toLocaleTimeString()}
-       </div>
-     `;
-   }
-   
-   // Calculate active trains without needing the live map
-   function calculateActiveTrains() {
-     if (!timetableData) return [];
-     
-     const currentSeconds = getGMT12Seconds();
-     const activeTrains = [];
-     
-     timetableData.trains.forEach(train => {
-       const trainStops = stopsByTrain[train.trainId];
-       if (!trainStops || trainStops.length === 0) return;
-       
-       let currentStop = null;
-       let nextStop = null;
-       
-       for (let i = 0; i < trainStops.length - 1; i++) {
-         const stop = trainStops[i];
-         const next = trainStops[i + 1];
-         const depTime = toSeconds(stop.departure || stop.arrival);
-         const arrTime = toSeconds(next.arrival || next.departure);
-         
-         let depSeconds = depTime;
-         let arrSeconds = arrTime;
-         
-         if (arrSeconds < depSeconds) arrSeconds += 86400;
-         
-         if (currentSeconds >= depSeconds - 300 && currentSeconds <= arrSeconds + 300) {
-           currentStop = stop;
-           nextStop = next;
-           break;
-         }
-       }
-       
-       if (currentStop && nextStop) {
-         activeTrains.push({
-           trainId: train.trainId,
-           serviceType: train.serviceType,
-           direction: train.direction,
-           currentStation: currentStop,
-           nextStation: nextStop,
-           arrivalTime: nextStop.arrival || '—',
-           departureTime: currentStop.departure || '—'
-         });
-       }
-     });
-     
-     return activeTrains;
-   }
-   
-   // Updated to accept active trains parameter
-   function getFleetBreakdown(activeTrainsList) {
-     const counts = {
-       LTD_EXPRESS: 0,
-       EXPRESS: 0,
-       LTD_LOCAL: 0,
-       LOCAL: 0
-     };
-     
-     const trains = activeTrainsList || currentTrainPositions;
-     
-     trains.forEach(train => {
-       const fullTrain = timetableData.trains.find(t => t.trainId === train.trainId);
-       if (fullTrain && counts[fullTrain.serviceType] !== undefined) {
-         counts[fullTrain.serviceType]++;
-       }
-     });
-     
-     const totalActive = trains.length;
-     
-     if (totalActive === 0) {
-       return '<p style="color: #64748b;">No active trains at this time</p>';
-     }
-     
-     const typeColors = {
-       LTD_EXPRESS: '#e74c3c',
-       EXPRESS: '#e67e22',
-       LTD_LOCAL: '#3498db',
-       LOCAL: '#27ae60'
-     };
-     
-     let html = '';
-     Object.entries(counts).forEach(([type, count]) => {
-       const percentage = totalActive > 0 ? Math.round((count / totalActive) * 100) : 0;
-       const color = typeColors[type] || '#95a5a6';
-       html += `
-         <div class="fleet-bar">
-           <span style="min-width: 100px; font-size: 0.8rem;">${type.replace(/_/g, ' ')}</span>
-           <div class="fleet-bar-track" style="flex: 1;">
-             <div class="fleet-bar-fill" style="width:${percentage}%; background: ${color};"></div>
-           </div>
-           <span style="min-width: 60px; text-align: right; font-size: 0.8rem;">${count} (${percentage}%)</span>
-         </div>
-       `;
-     });
-     
-     html += `<div style="margin-top: 8px; font-size: 0.75rem; color: #64748b;">Total: ${totalActive} active trains</div>`;
-     
-     return html;
-   }
-   
-   // Updated to accept active trains parameter
-   function getDirectionBreakdown(activeTrainsList) {
-     let cwCount = 0;
-     let ccwCount = 0;
-     
-     const trains = activeTrainsList || currentTrainPositions;
-     
-     trains.forEach(train => {
-       if (train.direction === 'CW') cwCount++;
-       else if (train.direction === 'CCW') ccwCount++;
-     });
-     
-     const total = cwCount + ccwCount;
-     
-     if (total === 0) {
-       return '<p style="color: #64748b;">No active trains at this time</p>';
-     }
-     
-     const cwPercentage = Math.round((cwCount / total) * 100);
-     const ccwPercentage = Math.round((ccwCount / total) * 100);
-     
-     return `
-       <div class="direction-row">
-         <div class="direction-item">
-           <div class="direction-label">↻ Clockwise</div>
-           <div class="direction-bar">
-             <div class="direction-fill cw-fill" style="width:${cwPercentage}%"></div>
-           </div>
-           <div class="direction-count">${cwCount} trains (${cwPercentage}%)</div>
-         </div>
-         <div class="direction-item">
-           <div class="direction-label">↺ Anti-Clockwise</div>
-           <div class="direction-bar">
-             <div class="direction-fill ccw-fill" style="width:${ccwPercentage}%"></div>
-           </div>
-           <div class="direction-count">${ccwCount} trains (${ccwPercentage}%)</div>
-         </div>
-       </div>
-     `;
-   }
-   
-   // Updated to accept active trains parameter
-   function getBusiestStation(activeTrainsList) {
-     const stationActivity = {};
-     
-     const trains = activeTrainsList || currentTrainPositions;
-     
-     trains.forEach(train => {
-       const stationId = train.currentStation?.stationId || train.nextStation?.stationId;
-       if (stationId) {
-         stationActivity[stationId] = (stationActivity[stationId] || 0) + 1;
-       }
-     });
-     
-     const sorted = Object.entries(stationActivity).sort((a, b) => b[1] - a[1]);
-     
-     if (sorted.length === 0) {
-       return '<p style="color: #64748b;">No station data available</p>';
-     }
-     
-     const top3 = sorted.slice(0, 3);
-     const maxCount = top3[0][1];
-     
-     return top3.map(([stationId, count]) => {
-       const stationName = stationLookup[stationId]?.name || stationId;
-       const percentage = Math.round((count / maxCount) * 100);
-       return `
-         <div class="fleet-bar">
-           <span style="min-width: 120px; font-size: 0.8rem;">${stationName}</span>
-           <div class="fleet-bar-track" style="flex: 1;">
-             <div class="fleet-bar-fill" style="width:${percentage}%; background: #8b5cf6;"></div>
-           </div>
-           <span style="min-width: 60px; text-align: right; font-size: 0.8rem;">${count} trains</span>
-         </div>
-       `;
-     }).join('');
-   }
-   
-   function getTotalUpcomingDepartures(currentSeconds) {
-     let count = 0;
-     
-     Object.values(stopsByStation || {}).forEach(stops => {
-       stops.forEach(stop => {
-         if (stop.departure) {
-           const depTime = toSeconds(stop.departure);
-           let diff = depTime - currentSeconds;
-           if (diff < 0) diff += 86400;
-           if (diff > 0 && diff <= 7200) {
-             count++;
-           }
-         }
-       });
-     });
-     
-     return count;
-   }
-   
-   // Stop live dashboard updates
-   function stopDashboardLive() {
-     if (dashboardInterval) {
-       clearInterval(dashboardInterval);
-       dashboardInterval = null;
-     }
-   }
+function populateBatchStationDropdown() {
+  const batchStationSelect = document.getElementById('batchStation');
+  if (!batchStationSelect || batchStationSelect.options.length > 0) return;
+  
+  batchStationSelect.innerHTML = '';
+  timetableData.stations.forEach(station => {
+    batchStationSelect.add(new Option(station.name, station.stationId));
+  });
+}
 
-   // Start live dashboard updates
+async function batchDelayTrains() {
+  const stationId = document.getElementById('batchStation').value;
+  const delayMinutes = parseInt(document.getElementById('batchDelay').value);
+  const reason = document.getElementById('batchReason').value;
+  
+  if (!stationId || !delayMinutes) {
+    alert('Please select station and delay amount');
+    return;
+  }
+  
+  const affectedStops = stopsByStation[stationId] || [];
+  const affectedTrains = new Set(affectedStops.map(s => s.trainId));
+  
+  let count = 0;
+  
+  for (const trainId of affectedTrains) {
+    const trainStops = stopsByTrain[trainId];
+    const now = getGMT12Seconds();
+    const stationStop = trainStops.find(s => s.stationId === stationId);
+    if (stationStop && toSeconds(stationStop.departure || stationStop.arrival) > now) {
+      const delayKey = `${trainId}_batch_${Date.now()}_${count}`;
+      
+      try {
+        const { error } = await supabase
+          .from('train_delays')
+          .insert([{
+            id: delayKey,
+            train_id: trainId,
+            minutes: delayMinutes,
+            reason: reason,
+            logged_by: currentAdminUser,
+            timestamp: new Date().toISOString(),
+            active: true
+          }]);
+        
+        if (error) throw error;
+        count++;
+      } catch (error) {
+        console.error('Batch delay error for train', trainId, error);
+      }
+    }
+  }
+  
+  logAdminAction('BATCH_DELAY', `Applied ${delayMinutes}min delay to ${count} trains at ${stationLookup[stationId]?.name}`);
+  alert(`Delayed ${count} trains passing through ${stationLookup[stationId]?.name}`);
+  await refreshActiveDelays();
+}
 
-   function startDashboardLive() {
-    if (dashboardInterval) {
+/* ================================================================
+   FEATURE 5: ADMIN DASHBOARD (Updated for Supabase)
+   ================================================================ */
+
+let dashboardInterval = null;
+let cachedWeather = null;
+let lastWeatherUpdate = 0;
+
+async function updateDashboard() {
+  const dashboardContent = document.getElementById('dashboardContent');
+  if (!dashboardContent) return;
+  
+  const now = new Date();
+  const currentSeconds = getGMT12Seconds();
+  
+  // Get real-time train positions (recalculate if empty)
+  let activeTrainsList = currentTrainPositions;
+  if (activeTrainsList.length === 0 && timetableData) {
+    activeTrainsList = calculateActiveTrains();
+  }
+  
+  const activeTrains = activeTrainsList.length;
+  
+  // Get counts from Supabase
+  let delayedTrains = 0;
+  let cancelledServices = 0;
+  let shortTerminated = 0;
+  let expressRunning = 0;
+  let activeOverrides = 0;
+  let recentNotes = [];
+  
+  try {
+    // Get delays from Supabase
+    const { data: delays } = await supabase
+      .from('train_delays')
+      .select('*')
+      .eq('active', true);
+    delayedTrains = delays?.length || 0;
+    
+    // Get service statuses from Supabase
+    const { data: services } = await supabase
+      .from('service_statuses')
+      .select('*')
+      .eq('active', true);
+    cancelledServices = services?.filter(s => s.status === 'CANCELLED').length || 0;
+    shortTerminated = services?.filter(s => s.status === 'SHORT_TERMINATED').length || 0;
+    expressRunning = services?.filter(s => s.status === 'EXPRESS_RUNNING').length || 0;
+    
+    // Get platform overrides from Supabase
+    const { data: overrides } = await supabase
+      .from('platform_overrides')
+      .select('*')
+      .eq('active', true);
+    activeOverrides = overrides?.length || 0;
+    
+    // Get recent notes from Supabase
+    const { data: notes } = await supabase
+      .from('staff_notes')
+      .select('*')
+      .order('timestamp', { ascending: false })
+      .limit(5);
+    recentNotes = notes || [];
+    
+  } catch (error) {
+    console.error('Dashboard data fetch error:', error);
+  }
+  
+  const totalTrains = timetableData ? timetableData.trains.length : 0;
+  const activePercentage = totalTrains > 0 ? Math.round((activeTrains / totalTrains) * 100) : 0;
+  
+  // Weather - only update every 30 minutes
+  if (!cachedWeather || (Date.now() - lastWeatherUpdate > 1800000)) {
+    const weatherConditions = ['Clear', 'Light Rain', 'Fog', 'Strong Winds', 'Overcast', 'Drizzle'];
+    cachedWeather = weatherConditions[Math.floor(Math.random() * weatherConditions.length)];
+    lastWeatherUpdate = Date.now();
+  }
+  
+  const fleetBreakdown = getFleetBreakdown(activeTrainsList);
+  const directionBreakdown = getDirectionBreakdown(activeTrainsList);
+  const busiestStation = getBusiestStation(activeTrainsList);
+  const totalUpcomingDepartures = getTotalUpcomingDepartures(currentSeconds);
+  
+  dashboardContent.innerHTML = `
+    <div class="dashboard-stats">
+      <div class="stat-card">
+        <div class="stat-value">${activeTrains}</div>
+        <div class="stat-label">Active Trains</div>
+        <div class="stat-sub">of ${totalTrains} total (${activePercentage}%)</div>
+      </div>
+      <div class="stat-card ${delayedTrains > 0 ? 'danger' : ''}">
+        <div class="stat-value">${delayedTrains}</div>
+        <div class="stat-label">Delayed</div>
+      </div>
+      <div class="stat-card ${cancelledServices > 0 ? 'danger' : ''}">
+        <div class="stat-value">${cancelledServices}</div>
+        <div class="stat-label">Cancelled</div>
+      </div>
+      <div class="stat-card ${activeOverrides > 0 ? 'warning' : ''}">
+        <div class="stat-value">${activeOverrides}</div>
+        <div class="stat-label">Platform Changes</div>
+      </div>
+    </div>
+    
+    <div class="dashboard-stats" style="margin-top: 12px;">
+      <div class="stat-card">
+        <div class="stat-value">${totalUpcomingDepartures}</div>
+        <div class="stat-label">Upcoming (2h)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${shortTerminated}</div>
+        <div class="stat-label">Short Terminated</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${expressRunning}</div>
+        <div class="stat-label">Express Running</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${recentNotes.length}</div>
+        <div class="stat-label">Staff Notes</div>
+      </div>
+    </div>
+    
+    <div class="dashboard-grid">
+      <div class="dashboard-section">
+        <h4>🌤 Current Conditions</h4>
+        <div class="dashboard-info-row">
+          <span>Weather:</span>
+          <span>${cachedWeather} <small style="color: #64748b;">(updated ${new Date(lastWeatherUpdate).toLocaleTimeString()})</small></span>
+        </div>
+        <div class="dashboard-info-row">
+          <span>System Time:</span>
+          <span>${now.toLocaleTimeString()}</span>
+        </div>
+        <div class="dashboard-info-row">
+          <span>Active Staff:</span>
+          <span>${currentAdminUser}</span>
+        </div>
+        <div class="dashboard-info-row">
+          <span>Total Fleet:</span>
+          <span>${totalTrains} trains</span>
+        </div>
+      </div>
+      
+      <div class="dashboard-section">
+        <h4>⚠️ Active Alerts</h4>
+        ${delayedTrains > 0 ? `<div class="alert-item alert-danger">🔴 ${delayedTrains} trains running late</div>` : ''}
+        ${cancelledServices > 0 ? `<div class="alert-item alert-danger">🚫 ${cancelledServices} cancellations</div>` : ''}
+        ${shortTerminated > 0 ? `<div class="alert-item alert-warning">⚠️ ${shortTerminated} short terminated</div>` : ''}
+        ${expressRunning > 0 ? `<div class="alert-item alert-info">ℹ️ ${expressRunning} running express</div>` : ''}
+        ${activeOverrides > 0 ? `<div class="alert-item alert-warning">🔄 ${activeOverrides} platform changes</div>` : ''}
+        ${delayedTrains === 0 && cancelledServices === 0 && shortTerminated === 0 && activeOverrides === 0 ? '<div class="alert-item alert-success">✅ No active alerts</div>' : ''}
+      </div>
+      
+      <div class="dashboard-section">
+        <h4>🚆 Active Fleet Breakdown</h4>
+        ${fleetBreakdown}
+      </div>
+      
+      <div class="dashboard-section">
+        <h4>🧭 Direction Breakdown</h4>
+        ${directionBreakdown}
+      </div>
+      
+      <div class="dashboard-section">
+        <h4>🏢 Busiest Stations</h4>
+        ${busiestStation}
+      </div>
+      
+      <div class="dashboard-section">
+        <h4>📝 Recent Notes</h4>
+        ${recentNotes.length > 0 ? recentNotes.map(note => {
+          const targetName = note.note_type === 'station' 
+            ? (stationLookup[note.target_id]?.name || note.target_id)
+            : note.target_id;
+          return `
+            <div class="dashboard-note-item">
+              <div class="note-icon">${note.note_type === 'station' ? '🏢' : '🚆'}</div>
+              <div class="note-content">
+                <strong>${targetName}</strong><br>
+                <small>${note.content.substring(0, 60)}${note.content.length > 60 ? '...' : ''}</small>
+                <div class="note-meta">${note.author} • ${new Date(note.timestamp).toLocaleTimeString()}</div>
+              </div>
+            </div>
+          `;
+        }).join('') : '<p style="color: #64748b;">No recent notes</p>'}
+      </div>
+    </div>
+    
+    <div class="dashboard-footer">
+      <span class="live-indicator">● LIVE</span> Auto-updating every 0.5s • Last updated: ${now.toLocaleTimeString()}
+    </div>
+  `;
+}
+
+function stopDashboardLive() {
+  if (dashboardInterval) {
+    clearInterval(dashboardInterval);
+    dashboardInterval = null;
+  }
+}
+
+function startDashboardLive() {
+  if (dashboardInterval) {
+    clearInterval(dashboardInterval);
+    dashboardInterval = null;
+  }
+  
+  const dashboardContent = document.getElementById('dashboardContent');
+  if (!dashboardContent) return;
+  
+  updateDashboard();
+  
+  dashboardInterval = setInterval(() => {
+    const panel = document.getElementById('adminPanel');
+    const dashboardTab = document.querySelector('[data-tab="dashboardPanel"]');
+    if (panel && !panel.classList.contains('hidden') && dashboardTab && dashboardTab.classList.contains('active')) {
+      updateDashboard();
+    } else if (dashboardInterval) {
       clearInterval(dashboardInterval);
       dashboardInterval = null;
     }
-    
-    // Only update if dashboard content exists
-    const dashboardContent = document.getElementById('dashboardContent');
-    if (!dashboardContent) return;
-    
-    updateDashboard();
-    
-    dashboardInterval = setInterval(() => {
-      // Check if dashboard is still visible
-      const panel = document.getElementById('adminPanel');
-      const dashboardTab = document.querySelector('[data-tab="dashboardPanel"]');
-      if (panel && !panel.classList.contains('hidden') && dashboardTab && dashboardTab.classList.contains('active')) {
-        updateDashboard();
-      } else if (dashboardInterval) {
-        // Stop if dashboard is not active
-        clearInterval(dashboardInterval);
-        dashboardInterval = null;
-      }
-    }, 500);
-  }
+  }, 500);
+}
 
 /* ================================================================
    FEATURE 6: QUICK TRAIN LOOKUP
@@ -5154,7 +5118,7 @@ function populateBatchStationDropdown() {
   });
 }
 
-function batchDelayTrains() {
+async function batchDelayTrains() {
   const stationId = document.getElementById('batchStation').value;
   const delayMinutes = parseInt(document.getElementById('batchDelay').value);
   const reason = document.getElementById('batchReason').value;
@@ -5168,27 +5132,38 @@ function batchDelayTrains() {
   const affectedTrains = new Set(affectedStops.map(s => s.trainId));
   
   let count = 0;
-  affectedTrains.forEach(trainId => {
+  
+  for (const trainId of affectedTrains) {
     const trainStops = stopsByTrain[trainId];
     const now = getGMT12Seconds();
     const stationStop = trainStops.find(s => s.stationId === stationId);
     if (stationStop && toSeconds(stationStop.departure || stationStop.arrival) > now) {
-      const delayKey = `${trainId}_batch_${Date.now()}`;
-      window.trainDelays[delayKey] = {
-        trainId: trainId,
-        minutes: delayMinutes,
-        reason: reason,
-        loggedBy: currentAdminUser,
-        timestamp: new Date().toISOString(),
-        active: true
-      };
-      count++;
+      const delayKey = `${trainId}_batch_${Date.now()}_${count}`;
+      
+      try {
+        const { error } = await supabase
+          .from('train_delays')
+          .insert([{
+            id: delayKey,
+            train_id: trainId,
+            minutes: delayMinutes,
+            reason: reason,
+            logged_by: currentAdminUser,
+            timestamp: new Date().toISOString(),
+            active: true
+          }]);
+        
+        if (error) throw error;
+        count++;
+      } catch (error) {
+        console.error('Batch delay error for train', trainId, error);
+      }
     }
-  });
+  }
   
   logAdminAction('BATCH_DELAY', `Applied ${delayMinutes}min delay to ${count} trains at ${stationLookup[stationId]?.name}`);
   alert(`Delayed ${count} trains passing through ${stationLookup[stationId]?.name}`);
-  refreshActiveDelays();
+  await refreshActiveDelays();
 }
 
 /* ================================================================
@@ -5312,21 +5287,95 @@ if (!window.userData) window.userData = {};
 
 // Update the initUserSystem function to create buttons
 function initUserSystem() {
-  // Load user accounts from localStorage
-  loadUserData();
+  // Check for existing session
+  const savedUid = localStorage.getItem('sc_current_user');
   
-  // Check if user was previously logged in
-  const savedUser = localStorage.getItem('sc_current_user');
-  if (savedUser) {
-    const userData = window.userData[savedUser];
-    if (userData) {
-      currentUser = {
-        username: savedUser,
-        ...userData
-      };
-      updateUserUI();
-    }
+  if (savedUid) {
+    // Try to restore session
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session && session.user.id === savedUid) {
+        // Fetch user profile
+        const { data: userData, error } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', savedUid)
+          .single();
+        
+        if (!error && userData) {
+          currentUser = {
+            uid: savedUid,
+            username: userData.username,
+            email: userData.email,
+            defaultClass: userData.default_class,
+            balance: userData.balance,
+            totalTrips: userData.total_trips,
+            totalSpent: userData.total_spent,
+            memberSince: userData.member_since,
+            savedJourneys: userData.saved_journeys || [],
+            recentSearches: userData.recent_searches || [],
+            bookings: userData.bookings || [],
+            preferences: userData.preferences || {}
+          };
+          updateUserUI();
+          setupUserRealtimeListener(savedUid);
+        }
+      } else if (savedUid) {
+        // Session expired, clear localStorage
+        localStorage.removeItem('sc_current_user');
+      }
+    });
   }
+  
+  // Find the login button (now in HTML)
+  const userLoginBtnVisible = document.getElementById('userLoginBtn_visible');
+  if (userLoginBtnVisible) {
+    userLoginBtnVisible.removeEventListener('click', userLoginBtnVisible._listener);
+    userLoginBtnVisible._listener = () => {
+      if (currentUser) {
+        toggleUserDropdown();
+      } else {
+        showUserAuth();
+      }
+    };
+    userLoginBtnVisible.addEventListener('click', userLoginBtnVisible._listener);
+  }
+  
+  // Find the profile button (now in HTML)
+  const userProfileBtn = document.getElementById('userProfileBtn');
+  if (userProfileBtn) {
+    userProfileBtn.removeEventListener('click', userProfileBtn._listener);
+    userProfileBtn._listener = (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      toggleUserDropdown();
+    };
+    userProfileBtn.addEventListener('click', userProfileBtn._listener);
+    userProfileBtn.style.cursor = 'pointer';
+    userProfileBtn.style.pointerEvents = 'auto';
+  }
+  
+  // Ensure modal exists and attach all modal button listeners
+  let modal = document.getElementById('userAuthModal');
+  if (!modal) {
+    createUserAuthModal();
+    modal = document.getElementById('userAuthModal');
+  }
+  // Attach listeners for modal buttons (even if modal already existed)
+  setupModalEventListeners();
+  
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    const profileBtn = document.getElementById('userProfileBtn');
+    const dropdown = document.getElementById('userDropdown');
+    const loginBtn = document.getElementById('userLoginBtn_visible');
+    if (userDropdownVisible && 
+        profileBtn && !profileBtn.contains(e.target) && 
+        dropdown && !dropdown.contains(e.target) &&
+        loginBtn && !loginBtn.contains(e.target)) {
+      closeUserDropdown();
+    }
+  });
+}
   
   // Find the login button (now in HTML)
   const userLoginBtnVisible = document.getElementById('userLoginBtn_visible');
@@ -5491,62 +5540,104 @@ function showRegisterForm() {
 
 // User login
 // Replace the existing userLogin function
-function userLogin() {
+async function userLogin() {
   const loginId = document.getElementById('userLoginId').value.trim();
   const password = document.getElementById('userLoginPassword').value;
   const errorElement = document.getElementById('userLoginError');
   
   if (!loginId || !password) {
     if (errorElement) {
-      errorElement.textContent = 'Please enter both email/username and password';
+      errorElement.textContent = 'Please enter both email and password';
       errorElement.style.display = 'block';
     }
     return;
   }
   
-  // Find account by email or username
-  let username = null;
-  for (const [user, account] of Object.entries(window.userAccounts || {})) {
-    if (account.email === loginId || user === loginId) {
-      username = user;
-      break;
+  try {
+    // Determine if loginId is email or username
+    let email = loginId;
+    
+    // If loginId doesn't contain @, try to find email by username
+    if (!loginId.includes('@')) {
+      const { data: userData, error: findError } = await supabase
+        .from('users')
+        .select('email')
+        .eq('username', loginId)
+        .single();
+      
+      if (findError && findError.code !== 'PGRST116') {
+        // PGRST116 means no rows returned
+        throw new Error('Username not found');
+      }
+      
+      if (userData) {
+        email = userData.email;
+      } else {
+        throw new Error('Username not found');
+      }
     }
-  }
-  
-  if (!username) {
+    
+    // Sign in with Supabase Auth
+    const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
+      email: email,
+      password: password
+    });
+    
+    if (signInError) throw signInError;
+    
+    const uid = authData.user.id;
+    
+    // Fetch user profile from users table
+    const { data: userData, error: fetchError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', uid)
+      .single();
+    
+    if (fetchError) throw fetchError;
+    
+    // Set current user
+    currentUser = {
+      uid: uid,
+      username: userData.username,
+      email: userData.email,
+      defaultClass: userData.default_class,
+      balance: userData.balance,
+      totalTrips: userData.total_trips,
+      totalSpent: userData.total_spent,
+      memberSince: userData.member_since,
+      savedJourneys: userData.saved_journeys || [],
+      recentSearches: userData.recent_searches || [],
+      bookings: userData.bookings || [],
+      preferences: userData.preferences || {}
+    };
+    
+    // Store UID in localStorage for session persistence
+    localStorage.setItem('sc_current_user', uid);
+    
+    // Set up real-time listener for this user
+    if (typeof setupUserRealtimeListener === 'function') {
+      setupUserRealtimeListener(uid);
+    }
+    
+    // Close modal and update UI
+    hideUserAuth();
+    updateUserUI();
+    
+    console.log(`[USER] ${currentUser.username} logged in`);
+    showTemporaryMessage(`Welcome back, ${currentUser.username}!`, 'success');
+    
+  } catch (error) {
+    console.error('Login error:', error);
     if (errorElement) {
-      errorElement.textContent = 'Account not found. Please register first.';
+      errorElement.textContent = error.message;
       errorElement.style.display = 'block';
     }
-    return;
   }
-  
-  // Verify password
-  const hashedPassword = simpleHash(password);
-  if (window.userAccounts[username].password !== hashedPassword) {
-    if (errorElement) {
-      errorElement.textContent = 'Invalid password. Please try again.';
-      errorElement.style.display = 'block';
-    }
-    return;
-  }
-  
-  // Login successful
-  currentUser = {
-    username: username,
-    ...window.userData[username]
-  };
-  
-  localStorage.setItem('sc_current_user', username);
-  hideUserAuth(); // closes modal
-  updateUserUI();
-  
-  console.log(`[USER] ${username} logged in`);
-  showTemporaryMessage(`Welcome back, ${username}!`, 'success');
 }
 
 // Replace the existing userRegister function
-function userRegister() {
+async function userRegister() {
   const username = document.getElementById('regUsername').value.trim();
   const email = document.getElementById('regEmail').value.trim();
   const password = document.getElementById('regPassword').value;
@@ -5599,68 +5690,72 @@ function userRegister() {
     return;
   }
   
-  // Check if username already exists
-  if (window.userAccounts[username]) {
+  try {
+    // 1. Sign up with Supabase Auth
+    const { data: authData, error: signUpError } = await supabase.auth.signUp({
+      email: email,
+      password: password,
+      options: {
+        data: {
+          username: username,
+          default_class: defaultClass
+        }
+      }
+    });
+    
+    if (signUpError) throw signUpError;
+    
+    if (!authData.user) {
+      throw new Error('Signup failed - no user returned');
+    }
+    
+    const uid = authData.user.id;
+    
+    // 2. Insert user profile into public.users table
+    const { error: insertError } = await supabase
+      .from('users')
+      .insert([{
+        id: uid,
+        username: username,
+        email: email,
+        default_class: defaultClass,
+        balance: 50,
+        total_trips: 0,
+        total_spent: 0,
+        member_since: new Date().toISOString(),
+        saved_journeys: [],
+        recent_searches: [],
+        bookings: [],
+        preferences: { defaultClass: defaultClass, notifications: true }
+      }]);
+    
+    if (insertError) throw insertError;
+    
+    if (successEl) {
+      successEl.textContent = 'Account created successfully! You can now login.';
+      successEl.style.display = 'block';
+    }
+    
+    // Clear form
+    document.getElementById('regUsername').value = '';
+    document.getElementById('regEmail').value = '';
+    document.getElementById('regPassword').value = '';
+    document.getElementById('regConfirmPassword').value = '';
+    
+    // Switch to login after 2 seconds
+    setTimeout(() => {
+      showLoginForm();
+      document.getElementById('userLoginId').value = email;
+      if (successEl) successEl.style.display = 'none';
+    }, 2000);
+    
+  } catch (error) {
+    console.error('Registration error:', error);
     if (errorEl) {
-      errorEl.textContent = 'Username already taken. Please choose another.';
+      errorEl.textContent = error.message;
       errorEl.style.display = 'block';
     }
-    return;
   }
-  
-  // Check if email already registered
-  for (const [user, account] of Object.entries(window.userAccounts)) {
-    if (account.email === email) {
-      if (errorEl) {
-        errorEl.textContent = 'Email already registered. Please login instead.';
-        errorEl.style.display = 'block';
-      }
-      return;
-    }
-  }
-  
-  // Create account
-  window.userAccounts[username] = {
-    email: email,
-    password: simpleHash(password),
-    created: new Date().toISOString()
-  };
-  
-  window.userData[username] = {
-    email: email,
-    defaultClass: defaultClass,
-    balance: 50, // Give new users some starting balance
-    totalTrips: 0,
-    totalSpent: 0,
-    memberSince: new Date().toISOString(),
-    savedJourneys: [],
-    recentSearches: [],
-    bookings: [],
-    preferences: {
-      defaultClass: defaultClass,
-      notifications: true
-    }
-  };
-  
-  saveUserData();
-  
-  if (successEl) {
-    successEl.textContent = 'Account created successfully! You can now login.';
-    successEl.style.display = 'block';
-  }
-  
-  // Clear form
-  document.getElementById('regUsername').value = '';
-  document.getElementById('regEmail').value = '';
-  document.getElementById('regPassword').value = '';
-  document.getElementById('regConfirmPassword').value = '';
-  
-  // Switch to login after 2 seconds
-  setTimeout(() => {
-    showLoginForm();
-    document.getElementById('userLoginId').value = username;
-    if (successEl) successEl.style.display = 'none';
-  }, 2000);
 }
 
 // Helper function to show temporary messages
@@ -5804,12 +5899,74 @@ function closeUserDropdown() {
 }
 
 // User logout
-function userLogout() {
+// Global variable for unsubscribe function (declare at top of file with other globals)
+let userUnsubscribe = null;
+
+// Setup real-time listener for user data
+function setupUserRealtimeListener(uid) {
+  // Unsubscribe from previous listener if exists
+  if (userUnsubscribe) {
+    userUnsubscribe();
+    userUnsubscribe = null;
+  }
+  
+  // Create new subscription
+  const subscription = supabase
+    .channel(`user-${uid}`)
+    .on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'users',
+      filter: `id=eq.${uid}`
+    }, (payload) => {
+      // Update currentUser with new data from database
+      if (payload.new && currentUser) {
+        currentUser = {
+          ...currentUser,
+          username: payload.new.username,
+          email: payload.new.email,
+          defaultClass: payload.new.default_class,
+          balance: payload.new.balance,
+          totalTrips: payload.new.total_trips,
+          totalSpent: payload.new.total_spent,
+          savedJourneys: payload.new.saved_journeys || [],
+          recentSearches: payload.new.recent_searches || [],
+          bookings: payload.new.bookings || [],
+          preferences: payload.new.preferences || {}
+        };
+        updateUserUI();
+        console.log('User data updated from database');
+      }
+    })
+    .subscribe();
+  
+  userUnsubscribe = () => {
+    subscription.unsubscribe();
+  };
+}
+
+// User logout function
+async function userLogout() {
+  // Unsubscribe from real-time updates
+  if (userUnsubscribe) {
+    userUnsubscribe();
+    userUnsubscribe = null;
+  }
+  
+  // Sign out from Supabase Auth
+  const { error } = await supabase.auth.signOut();
+  if (error) console.error('Logout error:', error);
+  
+  // Clear local state
   currentUser = null;
   localStorage.removeItem('sc_current_user');
+  
+  // Close dropdown and update UI
   closeUserDropdown();
   updateUserUI();
+  
   console.log('[USER] Logged out');
+  showTemporaryMessage('You have been logged out.', 'info');
 }
 
 // View user profile
@@ -5934,21 +6091,153 @@ function viewRecentSearches() {
 }
 
 // Top up balance
-function topUpBalance() {
+async function topUpBalance() {
   closeUserDropdown();
   
-  if (!currentUser) return;
+  if (!currentUser) {
+    alert('Please login first');
+    return;
+  }
   
   const amount = prompt('Enter amount to top up (DSD):', '50');
   if (!amount || isNaN(amount) || parseFloat(amount) <= 0) return;
   
   const topUpAmount = parseFloat(amount);
-  currentUser.balance = (currentUser.balance || 0) + topUpAmount;
-  window.userData[currentUser.username].balance = currentUser.balance;
-  saveUserData();
-  updateUserUI();
+  const newBalance = (currentUser.balance || 0) + topUpAmount;
   
-  alert(`Successfully topped up ${topUpAmount} DSD! New balance: ${currentUser.balance} DSD`);
+  try {
+    // Update balance in Supabase
+    const { error } = await supabase
+      .from('users')
+      .update({ balance: newBalance })
+      .eq('id', currentUser.uid);
+    
+    if (error) throw error;
+    
+    // Update local state (the real-time listener will also update it)
+    currentUser.balance = newBalance;
+    updateUserUI();
+    
+    alert(`Successfully topped up ${topUpAmount} DSD! New balance: ${newBalance} DSD`);
+    showTemporaryMessage(`Top-up successful! +${topUpAmount} DSD`, 'success');
+    
+  } catch (error) {
+    console.error('Top-up error:', error);
+    alert('Failed to top up balance: ' + error.message);
+  }
+}
+
+// Create a new booking (called after purchase)
+async function createBooking(bookingData) {
+  if (!currentUser) return false;
+  
+  const newBookings = [...(currentUser.bookings || []), bookingData];
+  const newBalance = currentUser.balance - bookingData.totalFare;
+  const newTrips = (currentUser.totalTrips || 0) + 1;
+  const newSpent = (currentUser.totalSpent || 0) + bookingData.totalFare;
+  
+  try {
+    const { error } = await supabase
+      .from('users')
+      .update({
+        bookings: newBookings,
+        balance: newBalance,
+        total_trips: newTrips,
+        total_spent: newSpent
+      })
+      .eq('id', currentUser.uid);
+    
+    if (error) throw error;
+    
+    // Update local state
+    currentUser.bookings = newBookings;
+    currentUser.balance = newBalance;
+    currentUser.totalTrips = newTrips;
+    currentUser.totalSpent = newSpent;
+    updateUserUI();
+    
+    return true;
+  } catch (error) {
+    console.error('Create booking error:', error);
+    return false;
+  }
+}
+
+async function cancelBooking(bookingId) {
+  if (!currentUser || !currentUser.bookings) return;
+  
+  const bookingIndex = currentUser.bookings.findIndex(b => b.id === bookingId);
+  if (bookingIndex === -1) return;
+  
+  const booking = currentUser.bookings[bookingIndex];
+  const refund = booking.totalFare;
+  
+  if (confirm(`Cancel booking #${booking.id} for ${booking.from} → ${booking.to} on ${booking.date}? You will be refunded ${refund} DSD.`)) {
+    
+    // Remove booking
+    const newBookings = [...currentUser.bookings];
+    newBookings.splice(bookingIndex, 1);
+    
+    // Calculate new totals
+    const newBalance = currentUser.balance + refund;
+    const newTrips = currentUser.totalTrips - 1;
+    const newSpent = currentUser.totalSpent - refund;
+    
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({
+          bookings: newBookings,
+          balance: newBalance,
+          total_trips: newTrips,
+          total_spent: newSpent
+        })
+        .eq('id', currentUser.uid);
+      
+      if (error) throw error;
+      
+      // Update local state
+      currentUser.bookings = newBookings;
+      currentUser.balance = newBalance;
+      currentUser.totalTrips = newTrips;
+      currentUser.totalSpent = newSpent;
+      updateUserUI();
+      
+      showTemporaryMessage(`Booking cancelled. Refunded ${refund} DSD.`, 'success');
+      
+      // Refresh the bookings view if it's currently open
+      const resultsDiv = document.getElementById('results');
+      if (resultsDiv && resultsDiv.innerHTML.includes('My Bookings')) {
+        viewMyBookings();
+      }
+    } catch (error) {
+      console.error('Cancel booking error:', error);
+      alert('Failed to cancel booking: ' + error.message);
+    }
+  }
+}
+
+function viewMyBookings() {
+  closeUserDropdown();
+  if (!currentUser || !currentUser.bookings || currentUser.bookings.length === 0) {
+    alert('No bookings found.');
+    return;
+  }
+  
+  const resultsDiv = document.getElementById('results');
+  let html = `<div class="live-board-container"><h2>🎫 My Bookings</h2>`;
+  
+  currentUser.bookings.forEach(b => {
+    html += `<div style="border-bottom:1px solid var(--border); padding:12px; position:relative;">
+              <strong>#${b.id}</strong> – ${b.trainId} · ${b.from} → ${b.to}<br>
+              ${b.date} ${b.departureTime} · ${b.travelClass} class · ${b.passengers.length} pax<br>
+              Paid: ${b.totalFare} DSD
+              <button onclick="cancelBooking(${b.id})" style="float:right; background:#e74c3c; color:white; border:none; border-radius:4px; padding:4px 10px; cursor:pointer;">Cancel</button>
+             </div>`;
+  });
+  
+  html += `</div>`;
+  resultsDiv.innerHTML = html;
 }
 
 // Save a journey search
@@ -6338,7 +6627,7 @@ function showSeatSelection() {
   };
 }
 
-function proceedToFareConfirmation() {
+async function proceedToFareConfirmation() {
   const selected = window.tempSelectedSeats || [];
   if (selected.length !== currentBooking.passengerCount) return;
   
@@ -6412,14 +6701,11 @@ function proceedToFareConfirmation() {
       bookedAt: new Date().toISOString()
     };
     
-    if (!currentUser.bookings) currentUser.bookings = [];
-    currentUser.bookings.unshift(booking);
-    window.userData[currentUser.username].bookings = currentUser.bookings;
-    window.userData[currentUser.username].balance = currentUser.balance;
-    window.userData[currentUser.username].totalTrips = currentUser.totalTrips;
-    window.userData[currentUser.username].totalSpent = currentUser.totalSpent;
-    saveUserData();
-    updateUserUI();
+    const success = await createBooking(booking);
+    if (!success) {
+      alert('Failed to create booking. Please try again.');
+      return;
+    }
     
     let summary = `<h3>Booking confirmed!</h3>`;
     summary += `<p><strong>Booking reference:</strong> #${booking.id}<br>
