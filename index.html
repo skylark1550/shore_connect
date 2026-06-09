@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Shore Connect – Passenger Information System</title>
+
+  <!-- Alata font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alata&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="logo">Shore Connect</div>
+      <div class="subtitle">Passenger Timetable &amp; Journey Planner</div>
+      <div class="clock-display" id="liveClock">GMT+12: --</div>
+      <div class="header-buttons">
+        <button id="hcToggle" class="hc-toggle-btn" title="Toggle high-contrast mode">HC</button>
+        <button id="userLoginBtn_visible" class="user-login-btn">👤 Login</button>
+        <div id="userProfileBtn" class="user-profile-btn hidden" style="display: none;">
+          <span>👤</span>
+          <span id="userDisplayName"></span>
+          <span>▼</span>
+        </div>
+        <!-- Theme Switcher -->
+        <div class="theme-switcher">
+          <span class="theme-label">Theme:</span>
+          <button class="theme-btn active" data-theme="lavender" title="Lavender" style="background: #b8a9c9;"></button>
+          <button class="theme-btn" data-theme="pink" title="Pink" style="background: #d4a8b4;"></button>
+          <button class="theme-btn" data-theme="peach" title="Peach" style="background: #d4b898;"></button>
+          <button class="theme-btn" data-theme="mint" title="Mint" style="background: #98d4a8;"></button>
+          <button class="theme-btn" data-theme="sky" title="Sky" style="background: #98b8d4;"></button>
+          <button class="theme-btn" data-theme="coral" title="Coral" style="background: #d4a8a4;"></button>
+          <button class="theme-btn" data-theme="sunshine" title="Sunshine" style="background: #d4c898;"></button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+<!-- Pinned departure countdown HUD -->
+<div id="pinnedHUD" class="pinned-hud hidden">
+  <div class="hud-inner">
+    <span class="hud-train" id="hudTrain"></span>
+    <span class="hud-dest" id="hudDest"></span>
+    <span class="hud-platform" id="hudPlatform"></span>
+    <span class="hud-countdown" id="hudCountdown"></span>
+    <button class="hud-close" id="hudClose" title="Unpin">&#x2715;</button>
+  </div>
+</div>
+
+<main class="app">
+
+  <section class="search-panel">
+    <div class="mode-toggle">
+      <button id="stationMode" class="active">Station to Station</button>
+      <button id="trainMode">Train Number</button>
+      <button id="boardMode">Station Board</button>
+      <button id="liveBoardMode">Live Departures</button>
+      <button id="routeMapMode">Route Map</button>
+      <button id="statsMode">Station Stats</button>
+      <button id="liveMapMode">🗺️ Live Train Map</button>
+    </div>
+
+    <!-- Station search -->
+    <div id="stationSearch" class="search-form">
+      <div class="form-row">
+        <label>From</label>
+        <select id="fromStation"></select>
+      </div>
+
+      <div class="form-row">
+        <label>To</label>
+        <select id="toStation"></select>
+      </div>
+
+      <div class="form-row">
+        <label>Departure after</label>
+        <input type="time" id="departureTime">
+      </div>
+
+      <div class="form-row">
+        <label>Departure before</label>
+        <input type="time" id="departureBefore">
+      </div>
+
+      <div class="form-row">
+        <label>Train type</label>
+        <select id="trainTypeFilter">
+          <option value="">All services</option>
+          <option value="LTD_EXPRESS">Limited Express</option>
+          <option value="EXPRESS">Express</option>
+          <option value="LTD_LOCAL">Limited Local</option>
+          <option value="LOCAL">Local</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <label>Max stopovers</label>
+        <select id="maxStopovers">
+          <option value="0">0 (Direct only)</option>
+          <option value="1">1</option>
+          <option value="2" selected>2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <label>Max layover time</label>
+        <select id="maxLayover">
+          <option value="15">15 minutes</option>
+          <option value="30" selected>30 minutes</option>
+          <option value="45">45 minutes</option>
+          <option value="60">1 hour</option>
+          <option value="90">1.5 hours</option>
+          <option value="120">2 hours</option>
+        </select>
+      </div>
+
+      <div class="form-actions">
+        <button id="searchBtn" class="primary">Search services</button>
+      </div>
+    </div>
+
+    <!-- Train search -->
+    <div id="trainSearch" class="search-form hidden">
+      <div class="form-row wide">
+        <label>Train number</label>
+        <input type="text" id="trainIdInput" placeholder="e.g. S4205">
+      </div>
+
+      <div class="form-actions">
+        <button id="trainSearchBtn" class="primary">View timetable</button>
+      </div>
+    </div>
+
+    <!-- Station board -->
+    <div id="boardSearch" class="search-form hidden">
+      <div class="form-row wide">
+        <label>Station</label>
+        <select id="boardStation"></select>
+      </div>
+
+      <div class="form-actions">
+        <button id="boardSearchBtn" class="primary">Show departures &amp; arrivals</button>
+      </div>
+    </div>
+
+    <!-- Live Departures Board -->
+    <div id="liveBoardSearch" class="search-form hidden">
+      <div class="form-row wide">
+        <label>Station</label>
+        <select id="liveBoardStation"></select>
+      </div>
+
+      <div class="form-actions" style="display: flex; gap: 10px;">
+        <button id="startLiveBoard" class="primary">Start Live Board</button>
+        <button id="stopLiveBoard" class="secondary">Stop Live Board</button>
+      </div>
+    </div>
+
+    <!-- Route Map -->
+    <div id="routeMapSearch" class="search-form hidden">
+      <div class="form-row wide">
+        <label>Click a station on the map to view its live board, or use it as a journey origin/destination</label>
+      </div>
+    </div>
+
+    <!-- Station Stats -->
+    <div id="statsSearch" class="search-form hidden">
+      <div class="form-row wide">
+        <label>Station</label>
+        <select id="statsStation"></select>
+      </div>
+      <div class="form-actions">
+        <button id="statsSearchBtn" class="primary">Show stats</button>
+      </div>
+    </div>
+
+    <!-- Live Train Map - MOVED INSIDE the search-panel section -->
+    <div id="liveMapSearch" class="search-form hidden">
+      <div style="margin-bottom: 15px;">
+        <p style="color: var(--muted); margin-bottom: 10px;">Real-time train positions on the ring line</p>
+        <button id="refreshMapBtn" class="search-btn">🔄 Refresh Map</button>
+      </div>
+    </div>
+    
+  </section>
+
+  <section id="loading" class="loading hidden">
+    Searching timetable…
+  </section>
+
+  <section id="results" class="results"></section>
+
+  <section id="timetablePanel" class="timetable-panel hidden"></section>
+
+</main>
+
+<script src="app.js"></script>
+
+<!-- Admin Authentication Modal -->
+<div id="adminAuthModal" class="modal hidden">
+  <div class="modal-content">
+    <h2>🔐 Staff Access</h2>
+    <div class="form-row">
+      <label>Staff ID</label>
+      <input type="text" id="adminStaffId" placeholder="Enter staff ID">
+    </div>
+    <div class="form-row">
+      <label>Password</label>
+      <input type="password" id="adminPassword" placeholder="Enter password">
+    </div>
+    <div class="form-actions">
+      <button id="adminLoginBtn" class="primary">Login</button>
+      <button id="adminCancelBtn" class="secondary">Cancel</button>
+    </div>
+    <div id="adminLoginError" style="color: #e74c3c; margin-top: 10px; display: none;"></div>
+  </div>
+</div>
+
+<!-- Admin Panel (Hidden by default) -->
+<div id="adminPanel" class="admin-panel hidden">
+  
+  <!-- Admin Header -->
+  <div class="admin-header">
+    <h2>🛠️ Staff Operations Panel</h2>
+    <div class="admin-user-info">
+      Logged in as: <span id="adminUserName"></span>
+      <button id="adminLogoutBtn" class="secondary" style="padding: 4px 12px; font-size: 0.8rem;">Logout</button>
+    </div>
+  </div>
+  
+  <!-- Admin Tabs Navigation -->
+  <div class="admin-tabs">
+    <button class="admin-tab active" data-tab="delayPanel">Delay Management</button>
+    <button class="admin-tab" data-tab="platformPanel">Platform Override</button>
+    <button class="admin-tab" data-tab="servicePanel">Service Status</button>
+    <button class="admin-tab" data-tab="notesPanel">Staff Notes</button>
+    <button class="admin-tab" data-tab="dashboardPanel">📊 Dashboard</button>
+    <button class="admin-tab" data-tab="trainLookupPanel">🔍 Train Lookup</button>
+    <button class="admin-tab" data-tab="stationMonitorPanel">🏢 Station Monitor</button>
+    <button class="admin-tab" data-tab="batchPanel">📦 Batch Operations</button>
+  </div>
+  
+  <!-- ============================================================ -->
+  <!-- DELAY MANAGEMENT PANEL -->
+  <!-- ============================================================ -->
+  <div id="delayPanel" class="admin-tab-content">
+    <h3>Log Train Delay</h3>
+    
+    <div class="form-row">
+      <label>Train ID</label>
+      <input type="text" id="delayTrainId" placeholder="e.g., S4205">
+    </div>
+    
+    <div class="form-row">
+      <label>Delay (minutes)</label>
+      <input type="number" id="delayMinutes" min="1" max="120" value="5">
+    </div>
+    
+    <div class="form-row">
+      <label>Reason</label>
+      <select id="delayReason">
+        <option value="SIGNAL_FAILURE">Signal Failure</option>
+        <option value="MECHANICAL_ISSUE">Mechanical Issue</option>
+        <option value="PASSENGER_INCIDENT">Passenger Incident</option>
+        <option value="WEATHER">Weather Conditions</option>
+        <option value="CREW_LATE">Crew Late</option>
+        <option value="OPERATIONAL">Operational Decision</option>
+        <option value="OTHER">Other</option>
+      </select>
+    </div>
+    
+    <div class="form-actions">
+      <button id="logDelayBtn" class="primary">Log Delay</button>
+    </div>
+    
+    <div id="activeDelays" style="margin-top: 20px;">
+      <h4>Active Delays</h4>
+      <div id="activeDelaysList"></div>
+    </div>
+  </div>
+  
+  <!-- ============================================================ -->
+  <!-- PLATFORM OVERRIDE PANEL -->
+  <!-- ============================================================ -->
+  <div id="platformPanel" class="admin-tab-content hidden">
+    <h3>Override Platform Assignment</h3>
+    
+    <div class="form-row">
+      <label>Train ID</label>
+      <input type="text" id="platformTrainId" placeholder="e.g., S4205">
+    </div>
+    
+    <div class="form-row">
+      <label>Station</label>
+      <select id="platformStation"></select>
+    </div>
+    
+    <div class="form-row">
+      <label>New Platform</label>
+      <input type="number" id="newPlatform" min="1" max="32">
+    </div>
+    
+    <div class="form-row">
+      <label>Reason</label>
+      <select id="platformReason">
+        <option value="MAINTENANCE">Platform Maintenance</option>
+        <option value="CROWDING">Crowd Management</option>
+        <option value="ACCESSIBILITY">Accessibility Requirements</option>
+        <option value="OPERATIONAL">Operational Needs</option>
+        <option value="OTHER">Other</option>
+      </select>
+    </div>
+    
+    <div class="form-actions">
+      <button id="overridePlatformBtn" class="primary">Apply Override</button>
+    </div>
+    
+    <div id="activeOverrides" style="margin-top: 20px;">
+      <h4>Active Platform Overrides</h4>
+      <div id="activeOverridesList"></div>
+    </div>
+  </div>
+  
+  <!-- ============================================================ -->
+  <!-- SERVICE STATUS PANEL -->
+  <!-- ============================================================ -->
+  <div id="servicePanel" class="admin-tab-content hidden">
+    <h3>Change Service Status</h3>
+    
+    <div class="form-row">
+      <label>Train ID</label>
+      <input type="text" id="serviceTrainId" placeholder="e.g., S4205">
+    </div>
+    
+    <div class="form-row">
+      <label>Status</label>
+      <select id="serviceStatus">
+        <option value="NORMAL">Normal Service</option>
+        <option value="CANCELLED">Cancelled</option>
+        <option value="SHORT_TERMINATED">Short Terminated</option>
+        <option value="EXPRESS_RUNNING">Running Express</option>
+        <option value="DELAYED">Delayed</option>
+      </select>
+    </div>
+    
+    <div class="form-row" id="terminationStationRow" style="display: none;">
+      <label>Terminate At</label>
+      <select id="terminationStation"></select>
+    </div>
+    
+    <div class="form-actions">
+      <button id="updateServiceStatusBtn" class="primary">Update Status</button>
+    </div>
+    
+    <div id="activeServiceChanges" style="margin-top: 20px;">
+      <h4>Active Service Changes</h4>
+      <div id="activeServiceChangesList"></div>
+    </div>
+  </div>
+  
+  <!-- ============================================================ -->
+  <!-- STAFF NOTES PANEL -->
+  <!-- ============================================================ -->
+  <div id="notesPanel" class="admin-tab-content hidden">
+    <h3>Staff Notes</h3>
+    
+    <div class="form-row">
+      <label>Note Type</label>
+      <select id="noteType">
+        <option value="station">Station Note</option>
+        <option value="train">Train Note</option>
+      </select>
+    </div>
+    
+    <div class="form-row">
+      <label id="noteTargetLabel">Station/Train ID</label>
+      <select id="noteTarget"></select>
+    </div>
+    
+    <div class="form-row wide">
+      <label>Note Content</label>
+      <textarea id="noteContent" rows="3" placeholder="Enter operational note..."></textarea>
+    </div>
+    
+    <div class="form-actions">
+      <button id="addNoteBtn" class="primary">Add Note</button>
+    </div>
+    
+    <div id="activeNotes" style="margin-top: 20px;">
+      <h4>Recent Notes</h4>
+      <div id="activeNotesList"></div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- DASHBOARD PANEL -->
+  <!-- ============================================================ -->
+  <div id="dashboardPanel" class="admin-tab-content hidden">
+    <div id="dashboardContent"></div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- TRAIN LOOKUP PANEL -->
+  <!-- ============================================================ -->
+  <div id="trainLookupPanel" class="admin-tab-content hidden">
+    <h3>Quick Train Lookup</h3>
+    
+    <div class="form-row">
+      <label>Train ID</label>
+      <div style="display: flex; gap: 10px;">
+        <input type="text" id="adminTrainSearch" placeholder="Enter train ID">
+        <button onclick="quickTrainLookup()" class="primary">Search</button>
+      </div>
+    </div>
+    
+    <div id="trainLookupResult"></div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- STATION MONITOR PANEL -->
+  <!-- ============================================================ -->
+  <div id="stationMonitorPanel" class="admin-tab-content hidden">
+    <h3>Station Live Monitor</h3>
+    
+    <div class="form-row">
+      <label>Station</label>
+      <select id="monitorStation"></select>
+    </div>
+    
+    <div class="form-actions">
+      <button onclick="updateStationMonitor()" class="primary">Monitor</button>
+    </div>
+    
+    <div id="stationMonitorResult"></div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- BATCH OPERATIONS PANEL -->
+  <!-- ============================================================ -->
+  <div id="batchPanel" class="admin-tab-content hidden">
+    <h3>Batch Delay Application</h3>
+    
+    <div class="form-row">
+      <label>Station (all passing trains)</label>
+      <select id="batchStation"></select>
+    </div>
+    
+    <div class="form-row">
+      <label>Delay (minutes)</label>
+      <input type="number" id="batchDelay" min="1" max="60" value="5">
+    </div>
+    
+    <div class="form-row">
+      <label>Reason</label>
+      <select id="batchReason">
+        <option value="SIGNAL_FAILURE">Signal Failure</option>
+        <option value="WEATHER">Weather</option>
+        <option value="OPERATIONAL">Operational</option>
+      </select>
+    </div>
+    
+    <div class="form-actions">
+      <button onclick="batchDelayTrains()" class="primary">Apply to All</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Admin Toggle Button (Hidden until authenticated) -->
+<button id="adminToggleBtn" class="admin-toggle-btn hidden" title="Toggle Admin Panel">🛠️</button>
+
+<!-- User Authentication Modal -->
+<div id="userAuthModal" class="modal hidden">
+  <div class="modal-content">
+    <h2>👤 Passenger Login</h2>
+    
+    <!-- Login Form -->
+    <div id="userLoginForm">
+      <div class="form-row">
+        <label>Email or Username</label>
+        <input type="text" id="userLoginId" placeholder="Enter email or username">
+      </div>
+      <div class="form-row">
+        <label>Password</label>
+        <input type="password" id="userLoginPassword" placeholder="Enter password">
+      </div>
+      <div class="form-actions">
+        <button id="userLoginBtn" class="primary">Login</button>
+        <button id="userCancelBtn" class="secondary">Cancel</button>
+      </div>
+      <div id="userLoginError" style="color: #e74c3c; margin-top: 10px; display: none;"></div>
+      <p style="text-align: center; margin-top: 12px;">
+        <small>Don't have an account? <a href="#" id="showRegisterLink" style="color: var(--accent);">Register here</a></small>
+      </p>
+    </div>
+    
+    <!-- Register Form (hidden by default) -->
+    <div id="userRegisterForm" style="display: none;">
+      <div class="form-row">
+        <label>Username</label>
+        <input type="text" id="regUsername" placeholder="Choose a username">
+      </div>
+      <div class="form-row">
+        <label>Email</label>
+        <input type="email" id="regEmail" placeholder="Enter your email">
+      </div>
+      <div class="form-row">
+        <label>Password</label>
+        <input type="password" id="regPassword" placeholder="Create password (min 6 characters)">
+      </div>
+      <div class="form-row">
+        <label>Confirm Password</label>
+        <input type="password" id="regConfirmPassword" placeholder="Confirm your password">
+      </div>
+      <div class="form-row">
+        <label>Default Class</label>
+        <select id="regDefaultClass">
+          <option value="Third">Third Class</option>
+          <option value="Second">Second Class</option>
+          <option value="First">First Class</option>
+        </select>
+      </div>
+      <div class="form-actions">
+        <button id="userRegisterBtn" class="primary">Create Account</button>
+        <button id="regCancelBtn" class="secondary">Back to Login</button>
+      </div>
+      <div id="regError" style="color: #e74c3c; margin-top: 10px; display: none;"></div>
+      <div id="regSuccess" style="color: #27ae60; margin-top: 10px; display: none;"></div>
+    </div>
+  </div>
+</div>
+
+
+</body>
+</html>
